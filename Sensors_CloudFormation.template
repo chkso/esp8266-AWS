@@ -6,7 +6,7 @@
             "MinValue": "0",
             "MaxValue": "100",
             "Default": "60",
-            "Description": "Enter the humidity threhshold (in %) for firing up a notification."
+            "Description": "Enter the humidity threshold (in %) for firing up a notification."
         },
         "emailAddressToNotify": {
             "Type": "String",
