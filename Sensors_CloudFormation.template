@@ -1,0 +1,577 @@
+{
+    "Description": "The template will create all the resources required to accept a request via Gateway API, send it to Lambda, save the values to DynamoDB and fire up a notification via SNS if the humidity threshold was reached/exceeded",
+    "Parameters": {
+        "humidThresholdParameter": {
+            "Type": "Number",
+            "MinValue": "0",
+            "MaxValue": "100",
+            "Default": "60",
+            "Description": "Enter the humidity threhshold (in %) for firing up a notification."
+        },
+        "emailAddressToNotify": {
+            "Type": "String",
+            "Description": "Enter the email address where the notifications will be sent."
+        }
+    },
+    "Resources": {
+        "tableKHddbhumiditytemperature": {
+            "Type": "AWS::DynamoDB::Table",
+            "Properties": {
+                "AttributeDefinitions": [
+                    {
+                        "AttributeName": "date",
+                        "AttributeType": "S"
+                    },
+                    {
+                        "AttributeName": "time",
+                        "AttributeType": "S"
+                    }
+                ],
+                "KeySchema": [
+                    {
+                        "AttributeName": "date",
+                        "KeyType": "HASH"
+                    },
+                    {
+                        "AttributeName": "time",
+                        "KeyType": "RANGE"
+                    }
+                ],
+                "ProvisionedThroughput": {
+                    "ReadCapacityUnits": "5",
+                    "WriteCapacityUnits": "5"
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "f6e14c45-f5e8-4cb3-b3d1-e2efda55957a"
+                }
+            }
+        },
+        "topicHumidNotif": {
+            "Type": "AWS::SNS::Topic",
+            "Properties": {
+                "DisplayName": "HumidNotif",
+                "Subscription": [
+                    {
+                        "Endpoint": { "Ref": "emailAddressToNotify" },
+                        "Protocol": "email"
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "08520755-39bc-4073-8165-88476f6ae351"
+                }
+            }
+        },
+        "snspolicyHumidNotif": {
+            "Type": "AWS::SNS::TopicPolicy",
+            "Properties": {
+                "Topics": [
+                    {
+                        "Ref": "topicHumidNotif"
+                    }
+                ],
+                "PolicyDocument": {
+                    "Version": "2008-10-17",
+                    "Id": "__default_policy_ID",
+                    "Statement": [
+                        {
+                            "Sid": "__default_statement_ID",
+                            "Effect": "Allow",
+                            "Principal": {
+                                "AWS": "*"
+                            },
+                            "Action": [
+                                "SNS:GetTopicAttributes",
+                                "SNS:SetTopicAttributes",
+                                "SNS:AddPermission",
+                                "SNS:RemovePermission",
+                                "SNS:DeleteTopic",
+                                "SNS:Subscribe",
+                                "SNS:ListSubscriptionsByTopic",
+                                "SNS:Publish",
+                                "SNS:Receive"
+                            ],
+                            "Resource": {
+                                "Ref": "topicHumidNotif"
+                            }
+                        }
+                    ]
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "c48759c3-a632-489d-b34a-e6d3f3d7af3d"
+                }
+            }
+        },
+        "RestApi": {
+            "Type": "AWS::ApiGateway::RestApi",
+            "Properties": {
+                "Name": "KH-API-for-sensors"
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc"
+                }
+            },
+            "DependsOn": [
+                "tableKHddbhumiditytemperature"
+            ]
+        },
+        "Method": {
+            "Type": "AWS::ApiGateway::Method",
+            "Properties": {
+                "HttpMethod": "POST",
+                "RestApiId": {
+                    "Ref": "RestApi"
+                },
+                "Integration": {
+                    "IntegrationHttpMethod": "POST",
+                    "Type": "AWS",
+                    "Uri": {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "arn:aws:apigateway:",
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                ":lambda:path/2015-03-31/functions/",
+                                {
+                                    "Fn::GetAtt": [
+                                        "Lambda",
+                                        "Arn"
+                                    ]
+                                },
+                                "/invocations"
+                            ]
+                        ]
+                    },
+                    "IntegrationResponses": [
+                        {
+                            "StatusCode": 200
+                        }
+                    ],
+                    "RequestTemplates": {"application/json": "{\"http_method\": \"$context.httpMethod\", \"body\" : $input.json('$') }"}
+                },
+                "AuthorizationType": "NONE",
+                "ResourceId": {
+                    "Ref": "sensorsResource"
+                },
+                "MethodResponses": [
+                    {
+                        "StatusCode": 200
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "2ab28ca4-7be5-4109-882a-4cc7fc95ced2"
+                }
+            }
+        },
+        "sensorsResource": {
+            "Type": "AWS::ApiGateway::Resource",
+            "Properties": {
+                "RestApiId": {
+                    "Ref": "RestApi"
+                },
+                "ParentId": {
+                    "Fn::GetAtt": [
+                        "RestApi",
+                        "RootResourceId"
+                    ]
+                },
+                "PathPart": "sensors"
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "bee54b5c-c920-4256-b4c0-c2dc6957ab69"
+                }
+            }
+        },
+        "Lambda": {
+            "Type": "AWS::Lambda::Function",
+            "Properties": {
+                "Handler": "index.handler",
+                "Role": {
+                    "Fn::GetAtt": [
+                        "LambdaRole",
+                        "Arn"
+                    ]
+                },
+                "Code": {
+                    "ZipFile": {
+                        "Fn::Join": [
+                            "",
+                            [
+                                												"'use strict'\n",
+												"console.log('Loading function')\n",
+												"const doc = require('dynamodb-doc')\n",
+												"const dynamo = new doc.DynamoDB()\n",
+												"var AWS = require(\"aws-sdk\");\n",
+												"\n",
+												"exports.handler = (event, context, callback) => {\n",
+												"    \n",
+												"    var toStore = {\n",
+												"        TableName: \"",
+												{"Ref": "tableKHddbhumiditytemperature"},
+												"\",\n",
+												"        Item: {\n",
+												"            \"date\": event.body.date,\n",
+												"            \"time\": event.body.time,\n",
+												"            \"humidity\": event.body.humidity,\n",
+												"            \"temperature\": event.body.temperature,\n",
+												"            \"room\": event.body.room\n",
+												"        }\n",
+												"    }\n",
+												"    \n",
+												"    dynamo.putItem(toStore, function(err, data) {\n",
+												"        if (err) {\n",
+												"            console.error(\"Unable to add item. Error JSON:\", JSON.stringify(err, null, 2));\n",
+												"        } else {\n",
+												"            console.log(\"Added item:\", JSON.stringify(data, null, 2));\n",
+												"        }\n",
+												"    });\n",
+												"\n",
+												"    if (event.body.humidity > ", { "Ref": "humidThresholdParameter" },
+												")  {\n",
+												"        var sns = new AWS.SNS;\n",
+												"        var params = {\n",
+												"           Message: \"Humidity in room \" + event.body.room + \": \" + event.body.humidity + \"%. Temperature: \" + event.body.temperature + \"C.\",\n",
+												"           Subject: \"Humidity too high in \" + event.body.room + \": \" + event.body.humidity + \"%\",\n",
+												"           TopicArn: \"", 
+												{"Ref": "topicHumidNotif"},
+												"\"\n",
+												"   };\n",
+												"        sns.publish(params, context.done);\n",
+												"    }\n",
+												"    \n",
+												"    var response = {\n",
+												"        statusCode: \"200\",\n",
+												"        headers: {\n",
+												"            \"Content-Type\": \"application/json\"\n",
+												"        },\n",
+												"        body: JSON.stringify(event)\n",
+												"    };\n",
+												"    console.log(\"response: \" + JSON.stringify(response))\n",
+												"    callback(null, response);\n",
+												"    \n",
+												"}\n"
+                            ]
+                        ]
+                    }
+                },
+                "Runtime": "nodejs6.10"
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "5ad13746-5e19-4a85-ae8b-045f3e80e74f"
+                }
+            },
+            "DependsOn": [
+                "topicHumidNotif"
+            ]
+        },
+        "LambdaRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [
+                                    "lambda.amazonaws.com"
+                                ]
+                            },
+                            "Action": [
+                                "sts:AssumeRole"
+                            ]
+                        }
+                    ]
+                },
+                "ManagedPolicyArns": [
+                    "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess",
+                    "arn:aws:iam::aws:policy/AmazonSNSFullAccess"
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "96ead855-fd7e-4c13-ad37-1d564a26773d"
+                }
+            }
+        },
+        "ApiGwToLambdaPermission": {
+            "Type": "AWS::Lambda::Permission",
+            "Properties": {
+                "FunctionName": {
+                    "Fn::GetAtt": [
+                        "Lambda",
+                        "Arn"
+                    ]
+                },
+                "Action": "lambda:InvokeFunction",
+                "Principal": "apigateway.amazonaws.com",
+                "SourceArn": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "arn:aws:execute-api:",
+                            {
+                                "Ref": "AWS::Region"
+                            },
+                            ":",
+                            {
+                                "Ref": "AWS::AccountId"
+                            },
+                            ":",
+                            {
+                                "Ref": "RestApi"
+                            },
+                            "/*/*/*"
+                        ]
+                    ]
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "fe05e3a7-30c8-495b-aafc-233a03178757"
+                }
+            }
+        },
+        "Deployment": {
+            "Type": "AWS::ApiGateway::Deployment",
+            "Properties": {
+                "RestApiId": {
+                    "Ref": "RestApi"
+                },
+                "StageName": "Demo"
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "f2242637-b688-4733-9c2e-f3408ba7f024"
+                }
+            },
+            "DependsOn": [
+                "Method"
+            ]
+        }
+    },
+    "Metadata": {
+        "AWS::CloudFormation::Designer": {
+            "5ad13746-5e19-4a85-ae8b-045f3e80e74f": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": 60,
+                    "y": 480
+                },
+                "z": 1,
+                "embeds": []
+            },
+            "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc": {
+                "size": {
+                    "width": 420,
+                    "height": 330
+                },
+                "position": {
+                    "x": 60,
+                    "y": 90
+                },
+                "z": 1,
+                "embeds": [
+                    "f2242637-b688-4733-9c2e-f3408ba7f024",
+                    "bee54b5c-c920-4256-b4c0-c2dc6957ab69",
+                    "2ab28ca4-7be5-4109-882a-4cc7fc95ced2"
+                ],
+                "dependson": [
+                    "f6e14c45-f5e8-4cb3-b3d1-e2efda55957a"
+                ]
+            },
+            "bee54b5c-c920-4256-b4c0-c2dc6957ab69": {
+                "size": {
+                    "width": 150,
+                    "height": 150
+                },
+                "position": {
+                    "x": 90,
+                    "y": 150
+                },
+                "z": 2,
+                "parent": "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                "embeds": [],
+                "iscontainedinside": [
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc"
+                ]
+            },
+            "2ab28ca4-7be5-4109-882a-4cc7fc95ced2": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": 300,
+                    "y": 150
+                },
+                "z": 2,
+                "parent": "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                "embeds": [],
+                "iscontainedinside": [
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "bee54b5c-c920-4256-b4c0-c2dc6957ab69",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc"
+                ]
+            },
+            "08520755-39bc-4073-8165-88476f6ae351": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": 420,
+                    "y": 480
+                },
+                "z": 1,
+                "embeds": []
+            },
+            "c48759c3-a632-489d-b34a-e6d3f3d7af3d": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": 540,
+                    "y": 90
+                },
+                "z": 1,
+                "embeds": [],
+                "isassociatedwith": [
+                    "08520755-39bc-4073-8165-88476f6ae351"
+                ]
+            },
+            "f6e14c45-f5e8-4cb3-b3d1-e2efda55957a": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": 540,
+                    "y": 210
+                },
+                "z": 1,
+                "embeds": []
+            },
+            "96ead855-fd7e-4c13-ad37-1d564a26773d": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": 630,
+                    "y": 90
+                },
+                "z": 1,
+                "embeds": []
+            },
+            "f2242637-b688-4733-9c2e-f3408ba7f024": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": 270,
+                    "y": 150
+                },
+                "z": 2,
+                "parent": "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                "embeds": [],
+                "iscontainedinside": [
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc",
+                    "b1a0d9e2-a58b-42c3-8f6a-f9a3a1a1bdbc"
+                ],
+                "dependson": [
+                    "2ab28ca4-7be5-4109-882a-4cc7fc95ced2"
+                ]
+            },
+            "fe05e3a7-30c8-495b-aafc-233a03178757": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": 720,
+                    "y": 90
+                },
+                "z": 1,
+                "embeds": [],
+                "isassociatedwith": [
+                    "5ad13746-5e19-4a85-ae8b-045f3e80e74f"
+                ]
+            },
+            "6db53cc7-4066-46d2-a556-aba21cd324be": {
+                "source": {
+                    "id": "f2242637-b688-4733-9c2e-f3408ba7f024"
+                },
+                "target": {
+                    "id": "2ab28ca4-7be5-4109-882a-4cc7fc95ced2"
+                },
+                "z": 3
+            }
+        }
+    },
+    "Outputs": {
+        "outputAPIEndpoint": {
+            "Description": "The API Gateway is accessible at the following URL",
+            "Value": {
+                "Fn::Join": [
+                    "", [
+                        "https://",
+                        { "Ref" : "RestApi" },
+                        ".execute-api.",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        ".amazonaws.com/Demo/sensors"
+                        ]
+                    ]
+            }
+        },
+        "outputDDBTableName": {
+            "Description": "DynamoDB table name that was created",
+            "Value": { "Ref": "tableKHddbhumiditytemperature"}
+        }
+    }
+}
