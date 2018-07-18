@@ -181,5 +181,5 @@ void loop() {
 
   Serial.println("Going into deep sleep for 5 minutes");
   //ESP.deepSleep(300e6); // 300e6 is 300 microseconds
-  delay(10000);  //<--- either delay or deepSleep (not working right now)
+  delay(60000);  //<--- either delay or deepSleep (not working right now)
 }   
